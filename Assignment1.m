@@ -25,8 +25,9 @@ function [W, b] = init_model(K, d)
 end
 
 function k = Predict(X, W, b)
-    [~, k] = max(EvaluateClassifier(X, W, b));
-    k = k';
+    P = EvaluateClassifier(X, W, b);
+    [~, k] = max(P);
+    k = k' - 1;
 end
 
 function acc = ComputeAccuracy(X, y, W, b)
@@ -62,8 +63,8 @@ function [W, b] = epoch(X, Y, y, W, b, n_batch, eta, lambda)
         batch_Y = Y(:, inds);
         P = EvaluateClassifier(batch_X, W, b);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, P, W, lambda);
-        W = W - grad_W*eta;
-        b = b - grad_b*eta;
+        W = W - eta*grad_W;
+        b = b - eta*grad_b;
     end
     fprintf("%i %i\n", ComputeAccuracy(X, y, W, b), ComputeCost(X, Y, W, b, lambda));
 end

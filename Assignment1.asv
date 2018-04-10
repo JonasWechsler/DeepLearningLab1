@@ -8,7 +8,7 @@ function [X, Y, y] = loadBatch(filename)
     K = 10;
     
     inf = load(filename);
-    X = double(inf.data.')/255;
+    X = double(inf.data.')/256;
     y = inf.labels;
     assert(isequal(size(X), [d N]));
     assert(isequal(size(y), [N 1]));
@@ -31,6 +31,9 @@ end
 
 function acc = ComputeAccuracy(X, y, W, b)
     P = Predict(X, W, b);
+    for i = 1:length(P)
+        
+    end
     acc = double(sum(bsxfun(@eq, P, y)))/length(P);
 end
 
