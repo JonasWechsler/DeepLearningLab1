@@ -54,6 +54,8 @@ end
 
 function main
     [X, Y, y] = loadBatch("data_batch_1.mat");
+    X = X(1:10,1:10);
+    Y = Y(:,1:10);
     [K, ~] = size(Y);
     [d, N] = size(X);
     [W, b] = init_model(K, d);
@@ -68,7 +70,10 @@ function main
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, P, W, 0);
         [sgrad_b, sgrad_W] = ComputeGradsNumSlow(batch_X, batch_Y, W, b, 0, 1e-6);
         [ngrad_b, ngrad_W] = ComputeGradsNum(batch_X, batch_Y, W, b, 0, 1e-6);
+        %disp(grad_W)
         %fprintf("%i %i %i %i %i %i\n", max(sgrad_W(:)), max(ngrad_W(:)), max(grad_W(:)), max(sgrad_b(:)), max(ngrad_b(:)), max(grad_b(:)))
-        fprintf("%i %i %i %i\n", max_diff(sgrad_b, ngrad_b), max_diff(sgrad_W, ngrad_W), max_diff(grad_W, sgrad_W), max_diff(grad_b, sgrad_b))
+        fprintf("%i %i\n", max_diff(grad_W, sgrad_W), max_diff(grad_b, sgrad_b))
+        W = W - 0.001*grad_W;
+        b = b - 0.001*grad_b;
     end
 end
