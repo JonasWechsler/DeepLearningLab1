@@ -6,7 +6,7 @@ end
 
 function mu = soft_max(eta)
     tmp = exp(eta);
-    tmp(isinf(tmp)) = 1e100;
+    tmp(Inf(tmp)) = 
     denom = sum(tmp, 1);
     mu = bsxfun(@rdivide, tmp, denom);
 end
