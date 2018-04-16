@@ -121,14 +121,13 @@ function learner_main
 end
 
 function tester_main
-    [X, Y, y] = loadBatch("data_batch_1.mat");
-    X = X(:,1:10);
-    Y = Y(:,1:10);
-    y = y(1:10);
+    [X, Y, ~] = loadBatch("data_batch_1.mat");
+    X = X(1:100,:);
+    Y = Y(1:10,:);
     [X, X_mean] = zero_mean(X);
     [K, ~] = size(Y);
     [d, N] = size(X);
-    n_nodes = 10;
+    n_nodes = 50;
     [W, b] = init_model(K, n_nodes, d);
     [W1, W2] = W{:};
     [b1, b2] = b{:};
@@ -143,16 +142,10 @@ function tester_main
     assert(isequal(size(grad_b2), size(b2)));
     for iter = 1:10
         [batch_X, batch_Y] = Sample(X, Y, 3);
-        P = EvaluateClassifier(batch_X, W, b);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, 0);
-        [sgrad_b, sgrad_W] = ComputeGradsNumSlow(batch_X, batch_Y, W, b, 0, 1e-6);
+        [sgrad_b, sgrad_W] = ComputeGradsNumSlow(batch_X, batch_Y, W, b, 0, 1e-5);
         fprintf("%i %i\n", max_diff(grad_W, sgrad_W), max_diff(grad_b, sgrad_b))
-        [ngrad_b, ngrad_W] = ComputeGradsNum(batch_X, batch_Y, W, b, 0, 1e-6);
+        [ngrad_b, ngrad_W] = ComputeGradsNum(batch_X, batch_Y, W, b, 0, 1e-5);
         fprintf("%i %i\n", max_diff(grad_W, ngrad_W), max_diff(grad_b, ngrad_b))
-        %disp(grad_W)
-        %fprintf("%i %i %i %i %i %i\n", max(sgrad_W(:)), max(ngrad_W(:)), max(grad_W(:)), max(sgrad_b(:)), max(ngrad_b(:)), max(grad_b(:)))
-        
-        W = W - grad_W*0.01;
-        b = b - grad_b*0.01;
     end
 end
