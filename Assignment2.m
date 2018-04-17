@@ -91,10 +91,12 @@ function v = max_diff(WA, WB)
     v = max(v1, v2);
 end
 
-function [W, b] = epoch(X, Y, y, W, b, n_batch, eta, lambda)
+function [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum)
     [W1, W2] = W{:};
     [b1, b2] = b{:};
     N = size(X, 2);
+    
+    parameters = {zeros(size(W1)), zeros(size(W2)), zeros(size(b1)), zeros(size(b2))};
     for j=1:N/n_batch
         j_start = (j-1)*n_batch + 1;
         j_end = j*n_batch;
@@ -104,28 +106,43 @@ function [W, b] = epoch(X, Y, y, W, b, n_batch, eta, lambda)
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, lambda);
         [grad_W1, grad_W2] = grad_W{:};
         [grad_b1, grad_b2] = grad_b{:};
-        W1 = W1 - eta*grad_W1;
-        W2 = W2 - eta*grad_W2;
-        b1 = b1 - eta*grad_b1;
-        b2 = b2 - eta*grad_b2;
+        grads = {grad_W1, grad_W2, grad_b1, grad_b2};
+        for m = 1:4
+           parameters{m} = parameters{m} + grads{m}; 
+        end
     end
+            
+    for m = 1:4
+        momentum{m} = rho*momentum{m} + eta*parameters{m};
+    end
+
+    W1 = W1 - momentum{1};
+    W2 = W2 - momentum{2};
+    b1 = b1 - momentum{3};
+    b2 = b2 - momentum{4};
+    
     W = {W1, W2};
     b = {b1, b2};
-    %fprintf("%i %i\n", ComputeAccuracy(X, y, W, b), ComputeCost(X, Y, W, b, lambda));
 end
 
-function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes)
+function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay)
+    fprintf("batch size: %i, eta: %.2f, epochs: %i, lambda: %i, nodes: %i, rho: %.2f, eta_decay: %.2f\n", n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay);
     [K, ~] = size(Y);
     [d, ~] = size(X);
     [W, b] = init_model(K, n_nodes, d);
+    [W1, W2] = W{:};
+    [b1, b2] = b{:};
+    momentum = {zeros(size(W1)), zeros(size(W2)), zeros(size(b1)), zeros(size(b2))};
     for iter = 1:n_epochs
-        [W, b] = epoch(X, Y, y, W, b, n_batch, eta, lambda);
+        [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum);
+        %fprintf("%i %i\n", ComputeAccuracy(X, y, W, b), ComputeCost(X, Y, W, b, lambda));
+        eta = eta*eta_decay;
     end
 end
 
 function learner_main
     [X, Y, y] = loadBatch("data_batch_1.mat");
-    train_size = size(X,2);
+    train_size = size(X,2)-1000;
     
     train_X = X(:,1:train_size);
     [train_X, mean_X] = zero_mean(train_X);
@@ -137,9 +154,11 @@ function learner_main
     test_Y = Y(:,train_size:size(Y,2));
     test_y = y(train_size:size(y));
     
-    [W, b] = train(train_X, train_Y, train_y, 100, 0.01, 200, 0, 50);
-    fprintf("Accuracy: %.2f%%\n", 100*ComputeAccuracy(train_X, train_y, W, b));
-    fprintf("Cost:     %i\n", ComputeCost(train_X, train_Y, W, b, 0));
+    [W, b] = train(train_X, train_Y, train_y, 100, 0.01, 200, 0, 50, 0.9, 0.99);
+    fprintf("Train Accuracy: %.2f%%\n", 100*ComputeAccuracy(train_X, train_y, W, b));
+    fprintf("Train Cost:     %i\n", ComputeCost(train_X, train_Y, W, b, 0));
+    fprintf("Test Accuracy:  %.2f%%\n", 100*ComputeAccuracy(test_X, test_y, W, b));
+    fprintf("Test Cost:      %i\n", ComputeCost(test_X, test_Y, W, b, 0));
 end
 
 function tester_main
