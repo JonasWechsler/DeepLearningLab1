@@ -297,3 +297,104 @@ function tester_main
         %b = {b1 b2};
     end
 end
+
+function J = ComputeCost(X, Y, W, b, lambda)
+    L = CrossEntropyLoss(X, Y, W, b);
+    [W1, W2] = W{:};
+    sum_squared = sum(W1(:).^2) + sum(W2(:).^2);
+    J = mean(L) + lambda*sum_squared;
+end
+
+function L = CrossEntropyLoss(X, Y, W, b)
+    [P, ~, ~] = EvaluateClassifier(X, W, b);
+    YTP = sum(Y'.*P',2);
+    L = -1*arrayfun(@log, YTP);
+end
+
+function [P, H, S1] = EvaluateClassifier(X, W, b)
+    [W1, W2] = W{:};
+    [b1, b2] = b{:};
+    S1 = bsxfun(@plus, W1*X, b1);
+    H = max(0, S1);
+    S = bsxfun(@plus, W2*H, b2);
+    P = soft_max(S);
+end
+
+function mu = soft_max(eta)
+    tmp = exp(eta);
+    tmp(isinf(tmp)) = 1e100;
+    denom = sum(tmp, 1);
+    mu = bsxfun(@rdivide, tmp, denom);
+end
+
+function [grad_b, grad_W] = ComputeGradsNum(X, Y, W, b, lambda, h)
+
+grad_W = cell(numel(W), 1);
+grad_b = cell(numel(b), 1);
+
+c = ComputeCost(X, Y, W, b, lambda);
+
+for j=1:length(b)
+    grad_b{j} = zeros(size(b{j}));
+    
+    for i=1:length(b{j})
+        b_try = b;
+        b_try{j}(i) = b_try{j}(i) + h;
+        c2 = ComputeCost(X, Y, W, b_try, lambda);
+        grad_b{j}(i) = (c2-c) / h;
+    end
+end
+
+for j=1:length(W)
+    grad_W{j} = zeros(size(W{j}));
+    
+    for i=1:numel(W{j})   
+        W_try = W;
+        W_try{j}(i) = W_try{j}(i) + h;
+        c2 = ComputeCost(X, Y, W_try, b, lambda);
+        
+        grad_W{j}(i) = (c2-c) / h;
+    end
+end
+
+end
+
+function [grad_b, grad_W] = ComputeGradsNumSlow(X, Y, W, b, lambda, h)
+
+grad_W = cell(numel(W), 1);
+grad_b = cell(numel(b), 1);
+
+for j=1:length(b)
+    grad_b{j} = zeros(size(b{j}));
+    
+    for i=1:length(b{j})
+        
+        b_try = b;
+        b_try{j}(i) = b_try{j}(i) - h;
+        c1 = ComputeCost(X, Y, W, b_try, lambda);
+        
+        b_try = b;
+        b_try{j}(i) = b_try{j}(i) + h;
+        c2 = ComputeCost(X, Y, W, b_try, lambda);
+        
+        grad_b{j}(i) = (c2-c1) / (2*h);
+    end
+end
+
+for j=1:length(W)
+    grad_W{j} = zeros(size(W{j}));
+    
+    for i=1:numel(W{j})
+        
+        W_try = W;
+        W_try{j}(i) = W_try{j}(i) - h;
+        c1 = ComputeCost(X, Y, W_try, b, lambda);
+    
+        W_try = W;
+        W_try{j}(i) = W_try{j}(i) + h;
+        c2 = ComputeCost(X, Y, W_try, b, lambda);
+    
+        grad_W{j}(i) = (c2-c1) / (2*h);
+    end
+end
+end
