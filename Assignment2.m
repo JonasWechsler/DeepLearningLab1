@@ -108,39 +108,36 @@ function [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, mome
         [grad_b1, grad_b2] = grad_b{:};
         grads = {grad_W1, grad_W2, grad_b1, grad_b2};
         for m = 1:4
-           parameters{m} = parameters{m} + grads{m}; 
+            momentum{m} = rho*momentum{m} + eta*grads{m};
         end
-    end
-    
-    for m = 1:4
-        momentum{m} = rho*momentum{m} + eta*parameters{m}*(45*n_batch/N);
-    end
 
-    W1 = W1 - momentum{1};
-    W2 = W2 - momentum{2};
-    b1 = b1 - momentum{3};
-    b2 = b2 - momentum{4};
+        W1 = W1 - momentum{1};
+        W2 = W2 - momentum{2};
+        b1 = b1 - momentum{3};
+        b2 = b2 - momentum{4};
+
+        W = {W1, W2};
+        b = {b1, b2};
+    end
     
-    W = {W1, W2};
-    b = {b1, b2};
+
 end
 
-function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay, test_X, test_Y, test_y, W, b)
+function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay, test_X, test_Y, test_y)
     fprintf("batch size: %i, eta: %.4f, epochs: %i, lambda: %i, nodes: %i, rho: %.2f, eta_decay: %.2f\n", n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay);
     [K, ~] = size(Y);
     [d, ~] = size(X);
     
-    if ~exist('W','var')
-        [W, b] = init_model(K, n_nodes, d);
-        [W1, W2] = W{:};
-        [b1, b2] = b{:};
-    end
-    
+    [W, b] = init_model(K, n_nodes, d);
+    [W1, W2] = W{:};
+    [b1, b2] = b{:};
+        
     best_W = W;
     best_b = b;
     best_accuracy = 0;
     
     momentum = {zeros(size(W1)), zeros(size(W2)), zeros(size(b1)), zeros(size(b2))};
+    
     for iter = 1:n_epochs
         [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum);
         eta = eta*eta_decay;
@@ -148,21 +145,11 @@ function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, e
         
         cost = ComputeCost(test_X, test_Y, W, b, lambda);
         accuracy = ComputeAccuracy(test_X, test_y, W, b);
-        fprintf("%i %i\n", accuracy, cost);
+        fprintf("%i,%i\n", accuracy, cost);
         if cost > 3*2.3
            return 
         end
-        
-        %{
-        if accuracy > best_accuracy
-           best_W = W;
-           best_b = b;
-           best_accuracy = accuracy;
-        end
-        %}
     end
-    %W = best_W;
-    %b = best_b;
 end
 
 function simple_learner_main
@@ -190,9 +177,9 @@ function simple_learner_main
     test_Y = Y(:,train_size:size(Y,2));
     test_y = y(train_size:size(y));
     
-    [W, b] = train(train_X, train_Y, train_y, 200, 0.04401432, 30, 0.000000007181045, 50, 0.9, 0.95, test_X, test_Y, test_y);
-    accuracy = ComputeAccuracy(train_X, train_y, W, b)*100;
-    cost = ComputeCost(train_X, train_Y, W, b, 0);
+    [W, b] = train(train_X, train_Y, train_y, 200, 0.04487559, 30, 0.00000000441909, 50, 0.9, 0.95, test_X, test_Y, test_y);
+    accuracy = ComputeAccuracy(test_X, test_y, W, b)*100;
+    cost = ComputeCost(test_X, test_Y, W, b, 0);
     fprintf("%i, %i\n", accuracy, cost);
 end
 
@@ -213,12 +200,12 @@ function learner_main
     eta = 0.01;
     lambda = 0.00001;
     
-    min_log_eta = log(0.001)/log(10);
-    max_log_eta = log(0.1)/log(10);
-    min_log_lambda = -10;
-    max_log_lambda = -4;
+    min_log_eta = log(0.04)/log(10);
+    max_log_eta = log(0.06)/log(10);
+    min_log_lambda = -15;
+    max_log_lambda = -8;
     
-    fileID = fopen('0.csv','w');
+    fileID = fopen('1.csv','w');
     
     best_cost_eta = -1;
     best_cost_lambda = -1;
@@ -228,13 +215,13 @@ function learner_main
     best_acc = 0;
     
     batch_size = 200;
-    n_epochs = 100;
+    n_epochs = 10;
     hidden_layer = 50;
     rho = 0.9;
     eta_decay = 0.99;
     
-    fprintf(fileID, "batch_size: %i, epochs: %i, hidden: %i, rho: %i, decay: %i", batch_size, n_epochs, hidden_layer, rho, eta_decay);
-    fprintf(fileID, "eta, lambda, accuracy, cost");
+    fprintf(fileID, "batch_size: %i, epochs: %i, hidden: %i, rho: %i, decay: %i\n", batch_size, n_epochs, hidden_layer, rho, eta_decay);
+    fprintf(fileID, "eta, lambda, accuracy, cost\n");
     for t = 1:100
         e = min_log_eta + (max_log_eta - min_log_eta)*rand(1,1);
         eta = 10^e;
@@ -242,8 +229,8 @@ function learner_main
         lambda = 10^e;
         
         [W, b] = train(train_X, train_Y, train_y, batch_size, eta, n_epochs, lambda, hidden_layer, rho, eta_decay, test_X, test_Y, test_y);
-        accuracy = ComputeAccuracy(train_X, train_y, W, b)*100;
-        cost = ComputeCost(train_X, train_Y, W, b, 0);
+        accuracy = ComputeAccuracy(test_X, test_y, W, b)*100;
+        cost = ComputeCost(test_X, test_Y, W, b, 0);
         fprintf(fileID, "%i, %i, %i, %i\n", eta, lambda, accuracy, cost);
         
         if accuracy > best_acc
