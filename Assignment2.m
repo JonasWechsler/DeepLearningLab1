@@ -46,6 +46,21 @@ function acc = ComputeAccuracy(X, y, W, b)
     acc = double(sum(bsxfun(@eq, P, y)))/length(P);
 end
 
+function [phi] = activation(X)
+    phi = max(0, X);
+    %{
+    a = exp(-X);
+    b = a + 1;
+    c = 2/b;
+    phi = c - 1;
+    %}
+end
+
+function [delta_phi] = delta_activation(X)
+    delta_phi = (X > 0);
+    %delta_phi = (1 + activation(X)).*(1 - activation(X))/2;
+end
+
 function [grad_W, grad_b] = ComputeGradients(X, Y, W, b, lambda)
     [W1, W2] = W{:};
     [b1, b2] = b{:};
@@ -55,7 +70,7 @@ function [grad_W, grad_b] = ComputeGradients(X, Y, W, b, lambda)
     grad_W2 = coef*(g.'*H.') + 2*lambda*W2;
     grad_b2 = coef*sum(g.',2);
     g = g*W2;
-    g = g.*(S1.' > 0);%for each column in g, ...
+    g = g.*delta_activation(S1.');%for each column in g, ...
     grad_W1 = coef*(g.'*X.') + 2*lambda*W1;
     grad_b1 = coef*sum(g.',2);
     grad_W = {grad_W1 grad_W2};
@@ -117,14 +132,14 @@ function [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, mome
         b2 = b2 - momentum{4};
 
         W = {W1, W2};
-        b = {b1, b2};
+            b = {b1, b2};
     end
     
 
 end
 
-function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay, test_X, test_Y, test_y)
-    fprintf("batch size: %i, eta: %.4f, epochs: %i, lambda: %i, nodes: %i, rho: %.2f, eta_decay: %.2f\n", n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay);
+function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay, test_X, test_Y, test_y, eta_decay_rate)
+    fprintf("batch size: %i, eta: %.4f, epochs: %i, lambda: %i, nodes: %i, rho: %.2f, eta_decay: %.2f, eta_rate: %i\n", n_batch, eta, n_epochs, lambda, n_nodes, rho, eta_decay, eta_decay_rate);
     [K, ~] = size(Y);
     [d, ~] = size(X);
     
@@ -140,16 +155,28 @@ function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, e
     
     for iter = 1:n_epochs
         [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum);
-        eta = eta*eta_decay;
-        
+        if mod(iter, eta_decay_rate) == 0
+            eta = eta*eta_decay;
+        end
         
         cost = ComputeCost(test_X, test_Y, W, b, lambda);
         accuracy = ComputeAccuracy(test_X, test_y, W, b);
-        fprintf("%i,%i\n", accuracy, cost);
+        tr_accuracy = ComputeAccuracy(X, y, W, b);
+        tr_cost = ComputeCost(X, Y, W, b, 0);
+        fprintf("%i,%i,%i,%i\n", accuracy, cost, tr_accuracy, tr_cost);
         if cost > 3*2.3
            return 
         end
+        
+        if accuracy > best_accuracy
+            best_accuracy = accuracy;
+            best_W = W;
+            best_b = b;
+        end
     end
+    
+    W = best_W;
+    b = best_b;
 end
 
 function simple_learner_main
@@ -177,14 +204,26 @@ function simple_learner_main
     test_Y = Y(:,train_size:size(Y,2));
     test_y = y(train_size:size(y));
     
-    [W, b] = train(train_X, train_Y, train_y, 200, 0.04487559, 30, 0.00000000441909, 50, 0.9, 0.95, test_X, test_Y, test_y);
+    [W, b] = train(train_X, train_Y, train_y, 200, 0.0449, 30, 4.419090e-09, 50, 0.9, 0.1, test_X, test_Y, test_y, 10);
     accuracy = ComputeAccuracy(test_X, test_y, W, b)*100;
     cost = ComputeCost(test_X, test_Y, W, b, 0);
-    fprintf("%i, %i\n", accuracy, cost);
+    tr_accuracy = ComputeAccuracy(train_X, train_y, W, b)*100;
+    tr_cost = ComputeCost(train_X, train_Y, W, b, 0);
+    fprintf("%i, %i, %i, %i\n", accuracy, cost, tr_accuracy, tr_cost);
 end
 
 function learner_main
     [X, Y, y] = loadBatch("data_batch_1.mat");
+    if 0
+        for i = 2:5
+            filename = sprintf("data_batch_%d.mat", i);
+            [X0, Y0, y0] = loadBatch(filename);
+            X = [X X0];
+            Y = [Y Y0];
+            y = [y; y0];
+        end
+    end
+    
     train_size = size(X,2)-1000;
     
     train_X = X(:,1:train_size);
@@ -200,12 +239,12 @@ function learner_main
     eta = 0.01;
     lambda = 0.00001;
     
-    min_log_eta = log(0.04)/log(10);
-    max_log_eta = log(0.06)/log(10);
-    min_log_lambda = -15;
-    max_log_lambda = -8;
+    min_log_eta = log(0.025)/log(10);
+    max_log_eta = log(0.04)/log(10);
+    min_log_lambda = -6;
+    max_log_lambda = -15;
     
-    fileID = fopen('1.csv','w');
+    fileID = fopen('2.csv','w');
     
     best_cost_eta = -1;
     best_cost_lambda = -1;
@@ -215,14 +254,14 @@ function learner_main
     best_acc = 0;
     
     batch_size = 200;
-    n_epochs = 10;
-    hidden_layer = 50;
+    n_epochs = 30;
+    hidden_layer = 200;
     rho = 0.9;
     eta_decay = 0.99;
     
     fprintf(fileID, "batch_size: %i, epochs: %i, hidden: %i, rho: %i, decay: %i\n", batch_size, n_epochs, hidden_layer, rho, eta_decay);
     fprintf(fileID, "eta, lambda, accuracy, cost\n");
-    for t = 1:100
+    for t = 1:50
         e = min_log_eta + (max_log_eta - min_log_eta)*rand(1,1);
         eta = 10^e;
         e = min_log_lambda + (max_log_lambda - min_log_lambda)*rand(1,1);
@@ -315,7 +354,7 @@ function [P, H, S1] = EvaluateClassifier(X, W, b)
     [W1, W2] = W{:};
     [b1, b2] = b{:};
     S1 = bsxfun(@plus, W1*X, b1);
-    H = max(0, S1);
+    H = activation(S1);
     S = bsxfun(@plus, W2*H, b2);
     P = soft_max(S);
 end
