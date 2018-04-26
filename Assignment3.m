@@ -1,4 +1,4 @@
-function Assignment1
+function Assignment3
     simple_learner_main();
 end 
 
@@ -21,18 +21,14 @@ function [X, mean_X] = zero_mean(X)
     X = X - repmat(mean_X, [1, size(X, 2)]);
 end
 
-function [W, b] = init_model(K, m, d)
+function [W, b] = init_model(layers)
     std_dev = 0.001;
-    W1 = std_dev*randn(m, d);
-    b1 = std_dev*randn(m, 1);
-    W2 = std_dev*randn(K, m);
-    b2 = std_dev*randn(K, 1);
-    W = {W1 W2};
-    b = {b1 b2};
-    assert(isequal(size(W1), [m d]));
-    assert(isequal(size(b1), [m 1]));
-    assert(isequal(size(W2), [K m]));
-    assert(isequal(size(b2), [K 1]));
+    W = {};
+    b = {};
+    for i = 1:length(layers)-1
+        W{i} = std_dev*randn(layers(i+1), layers(i));
+        b{i} = std_dev*randn(layers(i+1), 1);
+    end
 end
 
 function k = Predict(X, W, b)
@@ -62,33 +58,25 @@ function [delta_phi] = delta_activation(X)
 end
 
 function [grad_W, grad_b] = ComputeGradients(X, Y, W, b, lambda)
-    [W1, W2] = W{:};
-    [b1, b2] = b{:};
-    [P, H, S1] = EvaluateClassifier(X, W, b);
-    g = - (Y - P).';
+    k = length(W);
+    grad_b = cell(k);
+    grad_W = cell(k);
+    [P, H, S] = EvaluateClassifier(X, W, b);
     coef = 1/size(X,2);
-    grad_W2 = coef*(g.'*H.') + 2*lambda*W2;
-    grad_b2 = coef*sum(g.',2);
-    g = g*W2;
-    g = g.*delta_activation(S1.');%for each column in g, ...
-    grad_W1 = coef*(g.'*X.') + 2*lambda*W1;
-    grad_b1 = coef*sum(g.',2);
-    grad_W = {grad_W1 grad_W2};
-    grad_b = {grad_b1 grad_b2};
-    assert(isequal(size(W1), size(grad_W1)));
-    assert(isequal(size(W2), size(grad_W2)));
-    assert(isequal(size(b1), size(grad_b1)));
-    assert(isequal(size(b2), size(grad_b2)));
-end
-
-%{
-function [grad_W, grad_b] = ComputeGradients(X, Y, P, W, lambda)
     g = - (Y - P).';
-    coef = 1/size(X,2);
-    grad_W = coef*(g.'*X.') + 2*lambda*W;
-    grad_b = coef*sum(g.',2);
+    for i = k:-1:2
+        grad_W{i} = coef*(g.'*H{i}.') + 2*lambda*W{i};
+        grad_b{i} = coef*sum(g.',2);
+        g = g*W{i};
+        g = g.*delta_activation(S{i-1}.');
+    end
+    grad_b{1} = coef*sum(g.',2);
+    grad_W{1} = coef*(g.'*H{1}.') + 2*lambda*W{1};
+    assert(isequal(size(W{1}), size(grad_W{1})));
+    assert(isequal(size(W{2}), size(grad_W{2})));
+    assert(isequal(size(b{1}), size(grad_b{1})));
+    assert(isequal(size(b{2}), size(grad_b{2})));
 end
-%}
 
 function [batch_X, batch_Y] = Sample(X, Y, batch_size)
     idx = randperm(size(X, 2), batch_size);
@@ -106,12 +94,9 @@ function v = max_diff(WA, WB)
     v = max(v1, v2);
 end
 
-function [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum)
-    [W1, W2] = W{:};
-    [b1, b2] = b{:};
+function [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b)
     N = size(X, 2);
     
-    parameters = {zeros(size(W1)), zeros(size(W2)), zeros(size(b1)), zeros(size(b2))};
     for j=1:N/n_batch
         j_start = (j-1)*n_batch + 1;
         j_end = j*n_batch;
@@ -119,20 +104,14 @@ function [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, mome
         batch_X = X(:, inds);
         batch_Y = Y(:, inds);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, lambda);
-        [grad_W1, grad_W2] = grad_W{:};
-        [grad_b1, grad_b2] = grad_b{:};
-        grads = {grad_W1, grad_W2, grad_b1, grad_b2};
-        for m = 1:4
-            momentum{m} = rho*momentum{m} + eta*grads{m};
+        for m = 1:length(W)
+            momentum_W{m} = rho*momentum_W{m} + eta*grad_W{m};
+            momentum_b{m} = rho*momentum_b{m} + eta*grad_b{m};
         end
-
-        W1 = W1 - momentum{1};
-        W2 = W2 - momentum{2};
-        b1 = b1 - momentum{3};
-        b2 = b2 - momentum{4};
-
-        W = {W1, W2};
-            b = {b1, b2};
+        for m = 1:length(W)
+            W{m} = W{m} - momentum_W{m};
+            b{m} = b{m} - momentum_b{m};
+        end
     end
     
 
@@ -143,18 +122,22 @@ function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, e
     [K, ~] = size(Y);
     [d, ~] = size(X);
     
-    [W, b] = init_model(K, n_nodes, d);
-    [W1, W2] = W{:};
-    [b1, b2] = b{:};
+    [W, b] = init_model([d n_nodes 20 K]);
         
     best_W = W;
     best_b = b;
     best_accuracy = 0;
     
-    momentum = {zeros(size(W1)), zeros(size(W2)), zeros(size(b1)), zeros(size(b2))};
+    momentum_W = cell(length(W));
+    momentum_b = cell(length(b));
+    
+    for i=1:length(W)
+       momentum_W{i} = zeros(size(W{i}));
+       momentum_b{i} = zeros(size(b{i}));
+    end
     
     for iter = 1:n_epochs
-        [W, b, momentum] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum);
+        [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b);
         if mod(iter, eta_decay_rate) == 0
             eta = eta*eta_decay;
         end
@@ -350,13 +333,17 @@ function L = CrossEntropyLoss(X, Y, W, b)
     L = -1*arrayfun(@log, YTP);
 end
 
-function [P, H, S1] = EvaluateClassifier(X, W, b)
-    [W1, W2] = W{:};
-    [b1, b2] = b{:};
-    S1 = bsxfun(@plus, W1*X, b1);
-    H = activation(S1);
-    S = bsxfun(@plus, W2*H, b2);
-    P = soft_max(S);
+function [P, X, S] = EvaluateClassifier(X_in, W, b)
+    k = length(W);
+    X = cell(k+1);
+    S = cell(k);
+    X{1} = X_in;
+    for i = 1:k-1
+        S{i} = bsxfun(@plus, W{i}*X{i}, b{i});
+        X{i+1} = activation(S{i});
+    end
+    S{k} = bsxfun(@plus, W{k}*X{k}, b{k});
+    P = soft_max(S{k});
 end
 
 function mu = soft_max(eta)
