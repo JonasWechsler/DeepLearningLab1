@@ -57,25 +57,42 @@ function [delta_phi] = delta_activation(X)
     %delta_phi = (1 + activation(X)).*(1 - activation(X))/2;
 end
 
-function [grad_W, grad_b] = ComputeGradients(X, Y, W, b, lambda)
+function g = BatchNormBackPass(g, S, mu, var)
+    syms idx;
+    e =  2.2204e-16;
+    V = diag(var + e);
+    n = size(g, 1);
+    
+    grad_v = zeros(size(var.'));
+    for idx = 1:n
+        grad_v = grad_v + -0.5*g(idx,:)*V^(-3/2)*diag(S(:,idx)-mu);
+        assert_no_nan(grad_v);
+    end
+    
+    grad_m = 0;
+    for idx = 1:n
+        grad_m = grad_m - g(idx,:)*V^(-1/2);
+    end
+    
+    g = g*V^(-1/2) + (2/n)*grad_v*diag(S-mu) + (1/n)*grad_m;
+end
+
+function [grad_W, grad_b] = ComputeGradients(X_in, Y, W, b, lambda)
     k = length(W);
     grad_b = cell(k);
     grad_W = cell(k);
-    [P, H, S] = EvaluateClassifier(X, W, b);
-    coef = 1/size(X,2);
+    [P, X, S, mu, var] = EvaluateClassifier(X_in, W, b);
+    coef = 1/size(X_in,2);
     g = - (Y - P).';
     for i = k:-1:2
-        grad_W{i} = coef*(g.'*H{i}.') + 2*lambda*W{i};
+        grad_W{i} = coef*(g.'*X{i}.') + 2*lambda*W{i};
         grad_b{i} = coef*sum(g.',2);
         g = g*W{i};
         g = g.*delta_activation(S{i-1}.');
+        g = BatchNormBackPass(g, S{i-1}, mu{i-1}, var{i-1});
     end
     grad_b{1} = coef*sum(g.',2);
-    grad_W{1} = coef*(g.'*H{1}.') + 2*lambda*W{1};
-    assert(isequal(size(W{1}), size(grad_W{1})));
-    assert(isequal(size(W{2}), size(grad_W{2})));
-    assert(isequal(size(b{1}), size(grad_b{1})));
-    assert(isequal(size(b{2}), size(grad_b{2})));
+    grad_W{1} = coef*(g.'*X{1}.') + 2*lambda*W{1};
 end
 
 function [batch_X, batch_Y] = Sample(X, Y, batch_size)
@@ -94,6 +111,70 @@ function v = max_diff(WA, WB)
     v = max(v1, v2);
 end
 
+function J = ComputeCost(X, Y, W, b, lambda)
+    L = CrossEntropyLoss(X, Y, W, b);
+    [W1, W2] = W{:};
+    sum_squared = sum(W1(:).^2) + sum(W2(:).^2);
+    J = mean(L) + lambda*sum_squared;
+end
+
+function L = CrossEntropyLoss(X, Y, W, b)
+    [P, ~, ~, ~, ~] = EvaluateClassifier(X, W, b);
+    YTP = sum(Y'.*P',2);
+    L = -1*arrayfun(@log, YTP);
+end
+
+function S = BatchNormalize(S, avg, var)
+    e =  2.2204e-16;
+    S = (diag(var + e)^-0.5)*(S - avg);
+end
+
+function assert_no_nan(M)
+    N = isnan(M);
+    assert(not(any(N(:))));
+end
+
+function [P, X, S, mu, var_S] = EvaluateClassifier(X_in, W, b)
+    k = length(W);
+    X = cell(k+1);
+    S = cell(k);
+    S_hat = cell(k);
+    mu = cell(k-1);
+    var_S = cell(k-1);
+    N = size(X_in, 2);
+    X{1} = X_in;
+    assert_no_nan(X_in);
+    for l = 1:k-1
+        S{l} = bsxfun(@plus, W{l}*X{l}, b{l});
+        
+        mu{l} = (1/N)*sum(S{l},2);
+        var_S{l} = zeros(size(mu{l}));
+        
+        for j = 1:size(var_S{l},1)
+            var_S{l}(j) = 0;
+            for idx = 1:N
+                var_S{l}(j) = var_S{l}(j) + (1/N)*(S{l}(j,idx) - mu{l}(j))^2;
+            end
+        end
+        
+        var_S{l} = var(S{l}, 0, 2);
+        var_S{l} = var_S{l} * (N-1)/N;
+        
+        S_hat{l} = BatchNormalize(S{l}, mu{l}, var_S{l});
+        
+        X{l+1} = activation(S_hat{l});
+    end
+    S{k} = bsxfun(@plus, W{k}*X{k}, b{k});
+    P = soft_max(S{k});
+end
+
+function mu = soft_max(eta)
+    tmp = exp(eta);
+    tmp(isinf(tmp)) = 1e100;
+    denom = sum(tmp, 1);
+    mu = bsxfun(@rdivide, tmp, denom);
+end
+
 function [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b)
     N = size(X, 2);
     
@@ -105,12 +186,23 @@ function [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lam
         batch_Y = Y(:, inds);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, lambda);
         for m = 1:length(W)
+            assert_no_nan(momentum_W{m});
+            assert_no_nan(momentum_b{m});
+            assert_no_nan(grad_W{m});
+            assert_no_nan(grad_b{m});
+            
             momentum_W{m} = rho*momentum_W{m} + eta*grad_W{m};
             momentum_b{m} = rho*momentum_b{m} + eta*grad_b{m};
+            assert_no_nan(momentum_W{m});
+            assert_no_nan(momentum_b{m});
         end
         for m = 1:length(W)
+            assert_no_nan(W{m});
+            assert_no_nan(b{m});
             W{m} = W{m} - momentum_W{m};
             b{m} = b{m} - momentum_b{m};
+            assert_no_nan(W{m});
+            assert_no_nan(b{m});
         end
     end
     
@@ -122,7 +214,7 @@ function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, e
     [K, ~] = size(Y);
     [d, ~] = size(X);
     
-    [W, b] = init_model([d n_nodes 20 K]);
+    [W, b] = init_model([d n_nodes K]);
         
     best_W = W;
     best_b = b;
@@ -318,39 +410,6 @@ function tester_main
         %W = {W1 W2};
         %b = {b1 b2};
     end
-end
-
-function J = ComputeCost(X, Y, W, b, lambda)
-    L = CrossEntropyLoss(X, Y, W, b);
-    [W1, W2] = W{:};
-    sum_squared = sum(W1(:).^2) + sum(W2(:).^2);
-    J = mean(L) + lambda*sum_squared;
-end
-
-function L = CrossEntropyLoss(X, Y, W, b)
-    [P, ~, ~] = EvaluateClassifier(X, W, b);
-    YTP = sum(Y'.*P',2);
-    L = -1*arrayfun(@log, YTP);
-end
-
-function [P, X, S] = EvaluateClassifier(X_in, W, b)
-    k = length(W);
-    X = cell(k+1);
-    S = cell(k);
-    X{1} = X_in;
-    for i = 1:k-1
-        S{i} = bsxfun(@plus, W{i}*X{i}, b{i});
-        X{i+1} = activation(S{i});
-    end
-    S{k} = bsxfun(@plus, W{k}*X{k}, b{k});
-    P = soft_max(S{k});
-end
-
-function mu = soft_max(eta)
-    tmp = exp(eta);
-    tmp(isinf(tmp)) = 1e100;
-    denom = sum(tmp, 1);
-    mu = bsxfun(@rdivide, tmp, denom);
 end
 
 function [grad_b, grad_W] = ComputeGradsNum(X, Y, W, b, lambda, h)
