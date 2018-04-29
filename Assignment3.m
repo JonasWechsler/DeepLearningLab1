@@ -1,5 +1,5 @@
 function Assignment3
-    simple_learner_main();
+    tester_main();
 end 
 
 function [X, Y, y] = loadBatch(filename)
@@ -73,7 +73,9 @@ function g = BatchNormBackPass(g, S, mu, var)
         grad_m = grad_m - g(idx,:)*V^(-1/2);
     end
     
-    g = g*V^(-1/2) + (2/n)*grad_v*diag(S-mu) + (1/n)*grad_m;
+    for idx = 1:size(g,1)
+        g(idx,:) = g(idx,:)*V^(-1/2) + (2/n)*grad_v*diag(S(:,idx)-mu) + (1/n)*grad_m;
+    end
 end
 
 function [grad_W, grad_b] = ComputeGradients(X_in, Y, W, b, lambda)
@@ -98,16 +100,6 @@ function [batch_X, batch_Y] = Sample(X, Y, batch_size)
     idx = randperm(size(X, 2), batch_size);
     batch_X = X(:,idx);
     batch_Y = Y(:,idx);
-end
-
-function v = max_diff(WA, WB)
-    [W1A, W2A] = WA{:};
-    [W1B, W2B] = WB{:};
-    D1 = W1A - W1B;
-    D2 = W2A - W2B;
-    v1 = max(abs(D1(:)));
-    v2 = max(abs(D2(:)));
-    v = max(v1, v2);
 end
 
 function J = ComputeCost(X, Y, W, b, lambda)
@@ -362,44 +354,34 @@ function learner_main
     %}
 end
 
+function v = max_diff(A, B)
+    v = 0;
+    for idx = 1:length(A)
+        a = A{idx};
+        b = B{idx};
+        d = a - b;
+        v_idx = max(abs(d(:)));
+        disp(idx);
+        disp(v_idx);
+        v = max(v, v_idx);
+    end
+end
+
 function tester_main
     [X, Y, ~] = loadBatch("data_batch_1.mat");
     X = X(1:100,:);
     Y = Y(1:10,:);
-    [X, X_mean] = zero_mean(X);
+    [X, ~] = zero_mean(X);
     [K, ~] = size(Y);
-    [d, N] = size(X);
+    [d, ~] = size(X);
     n_nodes = 50;
-    [W, b] = init_model(K, n_nodes, d);
-    P = EvaluateClassifier(X, W, b);
-    assert(isequal(size(P), [K N]));
-    [grad_W, grad_b] = ComputeGradients(X, Y, W, b, 0);
-    [grad_W1, grad_W2] = grad_W{:};
-    [grad_b1, grad_b2] = grad_b{:};
-    [W1, W2] = W{:};
-    [b1, b2] = b{:};
-    assert(isequal(size(grad_W1), size(W1)));
-    assert(isequal(size(grad_W2), size(W2)));
-    assert(isequal(size(grad_b1), size(b1)));
-    assert(isequal(size(grad_b2), size(b2)));
+    [W, b] = init_model([d n_nodes K]);
     for iter = 1:10
         [batch_X, batch_Y] = Sample(X, Y, 10);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, 0);
         [sgrad_b, sgrad_W] = ComputeGradsNumSlow(batch_X, batch_Y, W, b, 0, 1e-5);
         [ngrad_b, ngrad_W] = ComputeGradsNum(batch_X, batch_Y, W, b, 0, 1e-5);
         fprintf("%i,%i,%i,%i\n", max_diff(grad_W, sgrad_W), max_diff(grad_b, sgrad_b), max_diff(grad_W, ngrad_W), max_diff(grad_b, ngrad_b));
-        
-        %fprintf("%i,%i\n", max_diff(grad_W, ngrad_W), max_diff(grad_b, ngrad_b));
-        
-        [grad_W1, grad_W2] = grad_W{:};
-        [grad_b1, grad_b2] = grad_b{:};
-        W1 = W1 - 0.01*grad_W1;
-        W2 = W2 - 0.01*grad_W2;
-        b1 = b1 - 0.01*grad_b1;
-        b2 = b2 - 0.01*grad_b2;
-        
-        %W = {W1 W2};
-        %b = {b1 b2};
     end
 end
 
