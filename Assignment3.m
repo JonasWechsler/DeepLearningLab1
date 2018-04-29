@@ -58,23 +58,22 @@ function [delta_phi] = delta_activation(X)
 end
 
 function g = BatchNormBackPass(g, S, mu, var)
-    syms idx;
     e =  2.2204e-16;
-    V = diag(var + e);
+    V = diag(var + e)^(-1/2);
     n = size(g, 1);
     
     grad_v = zeros(size(var.'));
     for idx = 1:n
-        grad_v = grad_v + -0.5*g(idx,:)*V^(-3/2)*diag(S(:,idx)-mu);
+        grad_v = grad_v -0.5 * g(idx,:) * V^3 * diag(S(:,idx)-mu);
     end
     
     grad_m = 0;
     for idx = 1:n
-        grad_m = grad_m - g(idx,:)*V^(-1/2);
+        grad_m = grad_m - g(idx,:)*V;
     end
     
     for idx = 1:size(g,1)
-        g(idx,:) = g(idx,:)*V^(-1/2) + (2/n)*grad_v*diag(S(:,idx)-mu) + (1/n)*grad_m;
+        g(idx,:) = g(idx,:)*V + (2/n)*grad_v*diag(S(:,idx)-mu) + (1/n)*grad_m;
     end
 end
 
@@ -92,8 +91,8 @@ function [grad_W, grad_b] = ComputeGradients(X_in, Y, W, b, lambda)
         g = g.*delta_activation(S{i-1}.');
         g = BatchNormBackPass(g, S{i-1}, mu{i-1}, var{i-1});
     end
-    grad_b{1} = coef*sum(g.',2);
     grad_W{1} = coef*(g.'*X{1}.') + 2*lambda*W{1};
+    grad_b{1} = coef*sum(g.',2);
 end
 
 function [batch_X, batch_Y] = Sample(X, Y, batch_size)
@@ -377,7 +376,7 @@ function tester_main
     n_nodes = 50;
     [W, b] = init_model([d n_nodes K]);
     for iter = 1:10
-        [batch_X, batch_Y] = Sample(X, Y, 10);
+        [batch_X, batch_Y] = Sample(X, Y, 11);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, 0);
         [sgrad_b, sgrad_W] = ComputeGradsNumSlow(batch_X, batch_Y, W, b, 0, 1e-5);
         [ngrad_b, ngrad_W] = ComputeGradsNum(batch_X, batch_Y, W, b, 0, 1e-5);
