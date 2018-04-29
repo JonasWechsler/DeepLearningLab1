@@ -66,7 +66,6 @@ function g = BatchNormBackPass(g, S, mu, var)
     grad_v = zeros(size(var.'));
     for idx = 1:n
         grad_v = grad_v + -0.5*g(idx,:)*V^(-3/2)*diag(S(:,idx)-mu);
-        assert_no_nan(grad_v);
     end
     
     grad_m = 0;
@@ -143,19 +142,11 @@ function [P, X, S, mu, var_S] = EvaluateClassifier(X_in, W, b)
     var_S = cell(k-1);
     N = size(X_in, 2);
     X{1} = X_in;
-    assert_no_nan(X_in);
+    
     for l = 1:k-1
         S{l} = bsxfun(@plus, W{l}*X{l}, b{l});
         
         mu{l} = (1/N)*sum(S{l},2);
-        var_S{l} = zeros(size(mu{l}));
-        
-        for j = 1:size(var_S{l},1)
-            var_S{l}(j) = 0;
-            for idx = 1:N
-                var_S{l}(j) = var_S{l}(j) + (1/N)*(S{l}(j,idx) - mu{l}(j))^2;
-            end
-        end
         
         var_S{l} = var(S{l}, 0, 2);
         var_S{l} = var_S{l} * (N-1)/N;
