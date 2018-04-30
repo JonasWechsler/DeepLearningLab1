@@ -1,5 +1,5 @@
 function Assignment3
-    tester_main();
+    simple_learner_main();
 end 
 
 function [X, Y, y] = loadBatch(filename)
@@ -31,16 +31,6 @@ function [W, b] = init_model(layers)
     end
 end
 
-function k = Predict(X, W, b)
-    [P, ~] = EvaluateClassifier(X, W, b);
-    [~, k] = max(P);
-    k = k' - 1;
-end
-
-function acc = ComputeAccuracy(X, y, W, b)
-    P = Predict(X, W, b);
-    acc = double(sum(bsxfun(@eq, P, y)))/length(P);
-end
 
 function [phi] = activation(X)
     phi = max(0, X);
@@ -77,7 +67,7 @@ function g = BatchNormBackPass(g, S, mu, var)
     end
 end
 
-function [grad_W, grad_b] = ComputeGradients(X_in, Y, W, b, lambda)
+function [grad_W, grad_b, mu, var] = ComputeGradients(X_in, Y, W, b, lambda)
     k = length(W);
     grad_b = cell(k);
     grad_W = cell(k);
@@ -101,8 +91,19 @@ function [batch_X, batch_Y] = Sample(X, Y, batch_size)
     batch_Y = Y(:,idx);
 end
 
-function J = ComputeCost(X, Y, W, b, lambda)
-    L = CrossEntropyLoss(X, Y, W, b);
+function k = Predict(X, W, b, mu, var)
+    [P, ~] = EvaluateClassifier(X, W, b, mu, var);
+    [~, k] = max(P);
+    k = k' - 1;
+end
+
+function acc = ComputeAccuracy(X, y, W, b, mu, var)
+    P = Predict(X, W, b, mu, var);
+    acc = double(sum(bsxfun(@eq, P, y)))/length(P);
+end
+
+function J = ComputeCost(X, Y, W, b, lambda, mu, var)
+    L = CrossEntropyLoss(X, Y, W, b, mu, var);
     sum_squared = 0;
     for idx=1:length(W)
         sum_squared = sum_squared + sum(W{idx}(:).^2);
@@ -110,8 +111,8 @@ function J = ComputeCost(X, Y, W, b, lambda)
     J = mean(L) + lambda*sum_squared;
 end
 
-function L = CrossEntropyLoss(X, Y, W, b)
-    [P, ~] = EvaluateClassifier(X, W, b);
+function L = CrossEntropyLoss(X, Y, W, b, mu, var)
+    [P, ~] = EvaluateClassifier(X, W, b, mu, var);
     YTP = sum(Y'.*P',2);
     L = -1*arrayfun(@log, YTP);
 end
@@ -121,29 +122,31 @@ function S = BatchNormalize(S, avg, var)
     S = (diag(var + e)^(-1/2))*(S - avg);
 end
 
-function assert_no_nan(M)
-    N = isnan(M);
-    assert(not(any(N(:))));
-end
-
-function [P, X, S, S_hat, mu, var_S] = EvaluateClassifier(X_in, W, b)
+function [P, X, S, S_hat, mu, var_S] = EvaluateClassifier(X_in, W, b, mu, var_S)
     k = length(W);
     X = cell(k+1);
     S = cell(k);
     S_hat = cell(k);
-    mu = cell(k-1);
-    var_S = cell(k-1);
+    
+    calc_avg = ~exist('mu', 'var');
+    assert(calc_avg == ~exist('var_S', 'var'));
+    
+    if calc_avg
+        mu = cell(k-1);
+        var_S = cell(k-1);
+    end
+    
     N = size(X_in, 2);
     X{1} = X_in;
     
     for l = 1:k-1
         S{l} = bsxfun(@plus, W{l}*X{l}, b{l});
         
-        assert(N == size(S{l},2));
-        mu{l} = (1/N)*sum(S{l},2);
-        
-        var_S{l} = var(S{l}, 0, 2);
-        var_S{l} = var_S{l} * (N-1)/N;
+        if calc_avg
+            mu{l} = (1/N)*sum(S{l},2);
+            var_S{l} = var(S{l}, 0, 2);
+            var_S{l} = var_S{l} * (N-1)/N;
+        end
         
         S_hat{l} = BatchNormalize(S{l}, mu{l}, var_S{l});
         
@@ -160,7 +163,7 @@ function mu = soft_max(eta)
     mu = bsxfun(@rdivide, tmp, denom);
 end
 
-function [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b)
+function [W, b, momentum_W, momentum_b, momentum_mu, momentum_v] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b, momentum_mu, momentum_v)
     N = size(X, 2);
     
     for j=1:N/n_batch
@@ -169,25 +172,26 @@ function [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lam
         inds = j_start:j_end;
         batch_X = X(:, inds);
         batch_Y = Y(:, inds);
-        [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, lambda);
+        [grad_W, grad_b, mu, var] = ComputeGradients(batch_X, batch_Y, W, b, lambda);
+        
+        if isequal(size(momentum_mu), [0,0])
+               momentum_mu = mu;
+               momentum_v = var;
+        end
+        
+        for m = 1:length(mu)
+           momentum_mu{m} = 0.99*momentum_mu{m} + (1-0.99)*mu{m};
+           momentum_v{m} = 0.99*momentum_v{m} + (1-0.99)*var{m};
+        end
+        
         for m = 1:length(W)
-            assert_no_nan(momentum_W{m});
-            assert_no_nan(momentum_b{m});
-            assert_no_nan(grad_W{m});
-            assert_no_nan(grad_b{m});
-            
             momentum_W{m} = rho*momentum_W{m} + eta*grad_W{m};
             momentum_b{m} = rho*momentum_b{m} + eta*grad_b{m};
-            assert_no_nan(momentum_W{m});
-            assert_no_nan(momentum_b{m});
         end
+        
         for m = 1:length(W)
-            assert_no_nan(W{m});
-            assert_no_nan(b{m});
             W{m} = W{m} - momentum_W{m};
             b{m} = b{m} - momentum_b{m};
-            assert_no_nan(W{m});
-            assert_no_nan(b{m});
         end
     end
     
@@ -207,6 +211,8 @@ function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, e
     
     momentum_W = cell(length(W));
     momentum_b = cell(length(b));
+    momentum_mu = {};
+    momentum_v = {};
     
     for i=1:length(W)
        momentum_W{i} = zeros(size(W{i}));
@@ -214,15 +220,15 @@ function [W, b] = train(X, Y, y, n_batch, eta, n_epochs, lambda, n_nodes, rho, e
     end
     
     for iter = 1:n_epochs
-        [W, b, momentum_W, momentum_b] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b);
+        [W, b, momentum_W, momentum_b, momentum_mu, momentum_v] = epoch(X, Y, y, W, b, n_batch, eta, lambda, rho, momentum_W, momentum_b, momentum_mu, momentum_v);
         if mod(iter, eta_decay_rate) == 0
             eta = eta*eta_decay;
         end
         
-        cost = ComputeCost(test_X, test_Y, W, b, lambda);
-        accuracy = ComputeAccuracy(test_X, test_y, W, b);
-        tr_accuracy = ComputeAccuracy(X, y, W, b);
-        tr_cost = ComputeCost(X, Y, W, b, 0);
+        cost = ComputeCost(test_X, test_Y, W, b, lambda, momentum_mu, momentum_v);
+        accuracy = ComputeAccuracy(test_X, test_y, W, b, momentum_mu, momentum_v);
+        tr_accuracy = ComputeAccuracy(X, y, W, b, momentum_mu, momentum_v);
+        tr_cost = ComputeCost(X, Y, W, b, lambda, momentum_mu, momentum_v);
         fprintf("%i,%i,%i,%i\n", accuracy, cost, tr_accuracy, tr_cost);
         if cost > 3*2.3
            return 
