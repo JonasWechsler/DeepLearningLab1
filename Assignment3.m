@@ -32,7 +32,7 @@ function [W, b] = init_model(layers)
 end
 
 function k = Predict(X, W, b)
-    [P, ~, ~] = EvaluateClassifier(X, W, b);
+    [P, ~] = EvaluateClassifier(X, W, b);
     [~, k] = max(P);
     k = k' - 1;
 end
@@ -81,14 +81,14 @@ function [grad_W, grad_b] = ComputeGradients(X_in, Y, W, b, lambda)
     k = length(W);
     grad_b = cell(k);
     grad_W = cell(k);
-    [P, X, S, mu, var] = EvaluateClassifier(X_in, W, b);
+    [P, X, S, S_hat, mu, var] = EvaluateClassifier(X_in, W, b);
     coef = 1/size(X_in,2);
     g = - (Y - P).';
     for i = k:-1:2
         grad_W{i} = coef*(g.'*X{i}.') + 2*lambda*W{i};
         grad_b{i} = coef*sum(g.',2);
         g = g*W{i};
-        g = g.*delta_activation(S{i-1}.');
+        g = g.*delta_activation(S_hat{i-1}.');
         g = BatchNormBackPass(g, S{i-1}, mu{i-1}, var{i-1});
     end
     grad_W{1} = coef*(g.'*X{1}.') + 2*lambda*W{1};
@@ -103,20 +103,22 @@ end
 
 function J = ComputeCost(X, Y, W, b, lambda)
     L = CrossEntropyLoss(X, Y, W, b);
-    [W1, W2] = W{:};
-    sum_squared = sum(W1(:).^2) + sum(W2(:).^2);
+    sum_squared = 0;
+    for idx=1:length(W)
+        sum_squared = sum_squared + sum(W{idx}(:).^2);
+    end
     J = mean(L) + lambda*sum_squared;
 end
 
 function L = CrossEntropyLoss(X, Y, W, b)
-    [P, ~, ~, ~, ~] = EvaluateClassifier(X, W, b);
+    [P, ~] = EvaluateClassifier(X, W, b);
     YTP = sum(Y'.*P',2);
     L = -1*arrayfun(@log, YTP);
 end
 
 function S = BatchNormalize(S, avg, var)
     e =  2.2204e-16;
-    S = (diag(var + e)^-0.5)*(S - avg);
+    S = (diag(var + e)^(-1/2))*(S - avg);
 end
 
 function assert_no_nan(M)
@@ -124,7 +126,7 @@ function assert_no_nan(M)
     assert(not(any(N(:))));
 end
 
-function [P, X, S, mu, var_S] = EvaluateClassifier(X_in, W, b)
+function [P, X, S, S_hat, mu, var_S] = EvaluateClassifier(X_in, W, b)
     k = length(W);
     X = cell(k+1);
     S = cell(k);
@@ -137,6 +139,7 @@ function [P, X, S, mu, var_S] = EvaluateClassifier(X_in, W, b)
     for l = 1:k-1
         S{l} = bsxfun(@plus, W{l}*X{l}, b{l});
         
+        assert(N == size(S{l},2));
         mu{l} = (1/N)*sum(S{l},2);
         
         var_S{l} = var(S{l}, 0, 2);
@@ -360,8 +363,6 @@ function v = max_diff(A, B)
         b = B{idx};
         d = a - b;
         v_idx = max(abs(d(:)));
-        disp(idx);
-        disp(v_idx);
         v = max(v, v_idx);
     end
 end
@@ -376,7 +377,7 @@ function tester_main
     n_nodes = 50;
     [W, b] = init_model([d n_nodes K]);
     for iter = 1:10
-        [batch_X, batch_Y] = Sample(X, Y, 11);
+        [batch_X, batch_Y] = Sample(X, Y, 3);
         [grad_W, grad_b] = ComputeGradients(batch_X, batch_Y, W, b, 0);
         [sgrad_b, sgrad_W] = ComputeGradsNumSlow(batch_X, batch_Y, W, b, 0, 1e-5);
         [ngrad_b, ngrad_W] = ComputeGradsNum(batch_X, batch_Y, W, b, 0, 1e-5);
